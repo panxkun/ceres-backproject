@@ -2,8 +2,6 @@
 
 An experiment backprojecting the 2D points to 3d space base ceres-solver
 
-<img src="img/frame.png" height="250"/> 
-
 <img src="img/screencap.gif" height="250"/>
 
 ### Data Preparation
@@ -35,9 +33,10 @@ first we need to compile the code
 mkdir build && cd build && cmake ..
 ```
 
-then, if the data is not prepared, run the following command line, this may spend several minutes
+then, if the data is not prepared, run the [process.ipynb](data/process.ipynb) and following command line, this may spend several minutes
+
+
 ```
-run the [process.ipynb](data/process.ipynb)
 ./ceresBackProjection /path/to/video/
 
 ```
