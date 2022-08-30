@@ -23,7 +23,9 @@ constexpr int CNT_ADJACENT_CONSTRAINT = 4 * CNT_X * CNT_Y - 3 * (CNT_X + CNT_Y) 
 constexpr int CNT_DIFFPLANE_CONSTRAINT = CNT_X * CNT_Y -  (CNT_X + CNT_Y) + 1;
 constexpr double dx = 0.297 / (CNT_X - 1);
 constexpr double dy = 0.210 / (CNT_Y - 1);
-constexpr double dxy2 = (dx * dx + dy * dy);
+constexpr double dx2 = dx * dx;
+constexpr double dy2 = dy * dy;
+constexpr double dxy2 = dx * dx + dy * dy;
 
 struct Camera{
     Camera(double fx, double fy, double cx, double cy):
@@ -65,28 +67,29 @@ struct Plane{
 };
 
 struct AdjacentDistanceError{
-    AdjacentDistanceError(Point3d<double> points1, Point3d<double> points2, Camera cam):
-    _points1(points1), _points2(points2), _cam(cam){
+    AdjacentDistanceError(Point3d<double> points1, Point3d<double> points2, double dist2, Camera cam):
+    _points1(points1), _points2(points2), _dist2(dist2), _cam(cam){
     }
 
     template<typename T>
     bool operator() (const T* const depth1, const T* const depth2, T* residual) const  
     {
         // TODO: inverse depth
-        residual[0] = T((ceres::sqrt( 
+        residual[0] = T(
                 ceres::pow((depth1[0] * (_points1._u - _cam._cx) / _cam._fx - depth2[0] * (_points2._u - _cam._cx) / _cam._fx), 2) +
                 ceres::pow((depth1[0] * (_points1._v - _cam._cy) / _cam._fy - depth2[0] * (_points2._v - _cam._cy) / _cam._fy), 2) +
-                ceres::pow((depth1[0] - depth2[0]), 2)) - dx));
+                ceres::pow((depth1[0] - depth2[0]), 2) - _dist2);
         return true;
     }
 
-    static ceres::CostFunction* Create(Point3d<double> points1, Point3d<double> points2, Camera cam){
+    static ceres::CostFunction* Create(Point3d<double> points1, Point3d<double> points2, double dist2, Camera cam){
         return (new ceres::AutoDiffCostFunction<AdjacentDistanceError, 1, 1, 1>(
-                new AdjacentDistanceError(points1, points2, cam)));
+                new AdjacentDistanceError(points1, points2, dist2, cam)));
    }
 
     Point3d<double> _points1;
     Point3d<double> _points2;
+    double _dist2;
     Camera _cam;
 };
 
@@ -102,19 +105,19 @@ void Warp3D(const std::vector<Point3d<double>>& points2d, const Camera& cam, dou
             const size_t idx1 = r * CNT_X + c;
             if(r < CNT_Y - 1){
                 const size_t idx2 = idx1 + CNT_X;
-                problem.AddResidualBlock(AdjacentDistanceError::Create(points2d[idx1], points2d[idx2], cam), nullptr, depth + idx1, depth + idx2);
+                problem.AddResidualBlock(AdjacentDistanceError::Create(points2d[idx1], points2d[idx2], dx2, cam), nullptr, depth + idx1, depth + idx2);
             }
             if(c < CNT_X - 1){
                 const size_t idx2 = idx1 + 1;
-                problem.AddResidualBlock(AdjacentDistanceError::Create(points2d[idx1], points2d[idx2], cam), nullptr, depth + idx1, depth + idx2);
+                problem.AddResidualBlock(AdjacentDistanceError::Create(points2d[idx1], points2d[idx2], dy2, cam), nullptr, depth + idx1, depth + idx2);
             }
             if(r < CNT_Y - 1 && c < CNT_X - 1){
                 const size_t idx2 = idx1 + CNT_X + 1;
-                problem.AddResidualBlock(AdjacentDistanceError::Create(points2d[idx1], points2d[idx2], cam), nullptr, depth + idx1, depth + idx2);
+                problem.AddResidualBlock(AdjacentDistanceError::Create(points2d[idx1], points2d[idx2], dxy2, cam), nullptr, depth + idx1, depth + idx2);
             }
             if(c > 0 && r < CNT_Y - 1){
                 const size_t idx2 = idx1 + CNT_X - 1;
-                problem.AddResidualBlock(AdjacentDistanceError::Create(points2d[idx1], points2d[idx2], cam), nullptr, depth + idx1, depth + idx2);
+                problem.AddResidualBlock(AdjacentDistanceError::Create(points2d[idx1], points2d[idx2], dxy2, cam), nullptr, depth + idx1, depth + idx2);
             }
         }
     }
