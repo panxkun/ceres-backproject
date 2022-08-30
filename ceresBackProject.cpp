@@ -64,136 +64,60 @@ struct Plane{
     T _A, _B, _C, _D;
 };
 
-struct DiffPlaneConstraintError{
-    DiffPlaneConstraintError(std::vector<Point3d<double>> points, Camera cam):
-    _points(points), _cam(cam){}
-
-    template<typename T>
-    bool operator() (
-        const T* const depth,  
-        T* residual ) const  
-    {
-        // TODO: inverse depth
-        for ( int i = 0; i < CNT; i++ )
-        {
-            const int v_idx = i % CNT_X;
-            const int v_idy = i / CNT_X;
-            const int p_id = (CNT_X - 1) * v_idy + v_idx;
-            
-            if(v_idx < CNT_X - 1 && v_idy < CNT_Y - 1){
-                const int idx1 = i;
-                const int idx2 = i + 1;
-                const int idx3 = i + CNT_X;
-                const int idx4 = i + CNT_X + 1;
-
-                Point3d<T> P1(T(_points[idx1]._u), T(_points[idx1]._v));
-                Point3d<T> P2(T(_points[idx2]._u), T(_points[idx2]._v));
-                Point3d<T> P3(T(_points[idx3]._u), T(_points[idx3]._v));
-                Point3d<T> P4(T(_points[idx4]._u), T(_points[idx4]._v));
-                P1.setDepth(depth[idx1], _cam);
-                P2.setDepth(depth[idx2], _cam);
-                P3.setDepth(depth[idx3], _cam);
-                P4.setDepth(depth[idx4], _cam);
-
-                Plane<T> plane(P1, P2, P3);
-
-                residual[p_id] = T(ceres::abs(plane._A * P4._x + plane._B * P4._y + plane._C * P4._z + plane._D) / 
-                                   ceres::sqrt(plane._A * plane._A + plane._B * plane._B + plane._C * plane._C));
-
-                // std::cout << residual[p_id] << std::endl;
-            }
-        }
-        return true;
-    }
-
-    static ceres::CostFunction* Create(std::vector<Point3d<double>> points, Camera cam){
-        return (new ceres::AutoDiffCostFunction<DiffPlaneConstraintError, CNT_DIFFPLANE_CONSTRAINT, CNT>(
-                new DiffPlaneConstraintError(points, cam)));
-   }
-
-    std::vector<Point3d<double>> _points;
-    Camera _cam;
-};
-
 struct AdjacentDistanceError{
-    AdjacentDistanceError(std::vector<Point3d<double>> points, Camera cam):
-    _points(points), _cam(cam){}
+    AdjacentDistanceError(Point3d<double> points1, Point3d<double> points2, Camera cam):
+    _points1(points1), _points2(points2), _cam(cam){
+    }
 
     template<typename T>
-    bool operator() (
-        const T* const depth,  
-        T* residual ) const  
+    bool operator() (const T* const depth1, const T* const depth2, T* residual) const  
     {
         // TODO: inverse depth
-        for ( int i = 0; i < CNT; i++ )
-        {
-            const int v_idx = i % CNT_X;
-            const int v_idy = i / CNT_X;
-            const int e_idx = (CNT_X - 1) * v_idy + v_idx;
-            const int e_idy = (CNT_X - 1) * CNT_Y + (CNT_Y - 1) * v_idx + v_idy;
-            const int e_id_xy1 = (CNT_X - 1) * CNT_Y + (CNT_Y - 1) * CNT_X + (CNT_X - 1) * v_idy + v_idx;
-            const int e_id_xy2 = (CNT_X - 1) * CNT_Y + (CNT_Y - 1) * CNT_X + (CNT_X - 1) * (CNT_Y - 1) + (CNT_X - 1) * v_idy + v_idx - 1;
-
-            const Point3d<double>& p1 = _points[i];
-
-            // --->
-            if(v_idx < CNT_X - 1){
-                const int idx2 = i+1;
-                const Point3d<double>& p2 = _points[idx2];
-                residual[e_idx] = T((ceres::sqrt( 
-                                ceres::pow((depth[i] * (p1._u - _cam._cx) / _cam._fx - depth[idx2] * (p2._u - _cam._cx) / _cam._fx), 2) +
-                                ceres::pow((depth[i] * (p1._v - _cam._cy) / _cam._fy - depth[idx2] * (p2._v - _cam._cy) / _cam._fy), 2) +
-                                ceres::pow((depth[i] - depth[idx2]), 2)) - dx));
-                // std::cout << residual[e_idx] << std::endl;
-            }
-            if(v_idy < CNT_Y - 1){
-                const int idx2 = i+CNT_X;
-                const Point3d<double>& p2 = _points[idx2];
-                residual[e_idy] = T((ceres::sqrt( 
-                                ceres::pow((depth[i] * (p1._u - _cam._cx) / _cam._fx - depth[idx2] * (p2._u - _cam._cx) / _cam._fx), 2) +
-                                ceres::pow((depth[i] * (p1._v - _cam._cy) / _cam._fy - depth[idx2] * (p2._v - _cam._cy) / _cam._fy), 2) +
-                                ceres::pow((depth[i] - depth[idx2]), 2)) - dy));
-                // std::cout << residual[e_idy] << std::endl;
-            }
-            if(v_idx < CNT_X - 1 && v_idy < CNT_Y - 1){
-                const int idx2 = i+CNT_X+1;
-                const Point3d<double>& p2 = _points[idx2];
-                residual[e_id_xy1] = T((ceres::sqrt(
-                                ceres::pow((depth[i] * (p1._u - _cam._cx) / _cam._fx - depth[idx2] * (p2._u - _cam._cx) / _cam._fx), 2) +
-                                ceres::pow((depth[i] * (p1._v - _cam._cy) / _cam._fy - depth[idx2] * (p2._v - _cam._cy) / _cam._fy), 2) +
-                                ceres::pow((depth[i] - depth[idx2]), 2)) - ceres::sqrt(dxy2)));
-                // std::cout << residual[e_id_xy1] << std::endl;
-            }
-            if(v_idx > 0 && v_idy < CNT_Y - 1){
-                const int idx2 = i+CNT_X-1;
-                const Point3d<double>& p2 = _points[idx2];
-                residual[e_id_xy2] = T((ceres::sqrt(
-                                ceres::pow((depth[i] * (p1._u - _cam._cx) / _cam._fx - depth[idx2] * (p2._u - _cam._cx) / _cam._fx), 2) +
-                                ceres::pow((depth[i] * (p1._v - _cam._cy) / _cam._fy - depth[idx2] * (p2._v - _cam._cy) / _cam._fy), 2) +
-                                ceres::pow((depth[i] - depth[idx2]), 2)) - ceres::sqrt(dxy2)));
-                // std::cout << residual[e_id_xy2] << std::endl;
-            }
-        }
+        residual[0] = T((ceres::sqrt( 
+                ceres::pow((depth1[0] * (_points1._u - _cam._cx) / _cam._fx - depth2[0] * (_points2._u - _cam._cx) / _cam._fx), 2) +
+                ceres::pow((depth1[0] * (_points1._v - _cam._cy) / _cam._fy - depth2[0] * (_points2._v - _cam._cy) / _cam._fy), 2) +
+                ceres::pow((depth1[0] - depth2[0]), 2)) - dx));
         return true;
     }
 
-
-    static ceres::CostFunction* Create(std::vector<Point3d<double>> points, Camera cam){
-        return (new ceres::AutoDiffCostFunction<AdjacentDistanceError, CNT_ADJACENT_CONSTRAINT, CNT>(
-                new AdjacentDistanceError(points, cam)));
+    static ceres::CostFunction* Create(Point3d<double> points1, Point3d<double> points2, Camera cam){
+        return (new ceres::AutoDiffCostFunction<AdjacentDistanceError, 1, 1, 1>(
+                new AdjacentDistanceError(points1, points2, cam)));
    }
 
-    std::vector<Point3d<double>> _points;
+    Point3d<double> _points1;
+    Point3d<double> _points2;
     Camera _cam;
 };
 
 void Warp3D(const std::vector<Point3d<double>>& points2d, const Camera& cam, double* depth, bool verbose=true){
     
     ceres::Problem problem;
-    ceres::CostFunction* cost_function_adjacent_distance = AdjacentDistanceError::Create(points2d, cam);
-    problem.AddResidualBlock (cost_function_adjacent_distance, nullptr, depth);
-    // ceres::CostFunction* cost_function_diffplane_constraint = DiffPlaneConstraintError::Create(vPoints, cam);
-    // problem.AddResidualBlock (cost_function_diffplane_constraint, nullptr, depth);
+    for(size_t i = 0; i < CNT; ++i){
+        problem.AddParameterBlock(depth + i, 1);
+    }
+
+    for(size_t r = 0; r < CNT_Y; ++r){
+        for(size_t c = 0; c < CNT_X; ++c){
+            const size_t idx1 = r * CNT_X + c;
+            if(r < CNT_Y - 1){
+                const size_t idx2 = idx1 + CNT_X;
+                problem.AddResidualBlock(AdjacentDistanceError::Create(points2d[idx1], points2d[idx2], cam), nullptr, depth + idx1, depth + idx2);
+            }
+            if(c < CNT_X - 1){
+                const size_t idx2 = idx1 + 1;
+                problem.AddResidualBlock(AdjacentDistanceError::Create(points2d[idx1], points2d[idx2], cam), nullptr, depth + idx1, depth + idx2);
+            }
+            if(r < CNT_Y - 1 && c < CNT_X - 1){
+                const size_t idx2 = idx1 + CNT_X + 1;
+                problem.AddResidualBlock(AdjacentDistanceError::Create(points2d[idx1], points2d[idx2], cam), nullptr, depth + idx1, depth + idx2);
+            }
+            if(c > 0 && r < CNT_Y - 1){
+                const size_t idx2 = idx1 + CNT_X - 1;
+                problem.AddResidualBlock(AdjacentDistanceError::Create(points2d[idx1], points2d[idx2], cam), nullptr, depth + idx1, depth + idx2);
+            }
+        }
+    }
 
     ceres::Solver::Options options;    
     options.linear_solver_type = ceres::DENSE_NORMAL_CHOLESKY;  
