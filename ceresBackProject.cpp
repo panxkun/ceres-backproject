@@ -13,16 +13,16 @@ using namespace std;
 
 constexpr int CNT_X = 32;
 constexpr int CNT_Y = 24;
-constexpr int reso_w = 640;
-constexpr int reso_h = 480;
-constexpr double focal_x = 400;
-constexpr double focal_y = 530;
+constexpr int reso_w = 960;
+constexpr int reso_h = 540;
+constexpr double focal_x = 500;
+constexpr double focal_y = 500;
 
 constexpr int CNT = CNT_X * CNT_Y;
 constexpr int CNT_ADJACENT_CONSTRAINT = 4 * CNT_X * CNT_Y - 3 * (CNT_X + CNT_Y) + 2;
 constexpr int CNT_DIFFPLANE_CONSTRAINT = CNT_X * CNT_Y -  (CNT_X + CNT_Y) + 1;
-constexpr double dx = 0.297 / (CNT_X - 1);
-constexpr double dy = 0.210 / (CNT_Y - 1);
+constexpr double dx = 2.97 / (CNT_X - 1);
+constexpr double dy = 2.10 / (CNT_Y - 1);
 constexpr double dx2 = dx * dx;
 constexpr double dy2 = dy * dy;
 constexpr double dxy2 = dx * dx + dy * dy;
@@ -76,9 +76,14 @@ struct AdjacentDistanceError{
     {
         // TODO: inverse depth
         residual[0] = T(
+            ceres::abs(
+                ceres::sqrt(
                 ceres::pow((depth1[0] * (_points1._u - _cam._cx) / _cam._fx - depth2[0] * (_points2._u - _cam._cx) / _cam._fx), 2) +
                 ceres::pow((depth1[0] * (_points1._v - _cam._cy) / _cam._fy - depth2[0] * (_points2._v - _cam._cy) / _cam._fy), 2) +
-                ceres::pow((depth1[0] - depth2[0]), 2) - _dist2);
+                ceres::pow((depth1[0] - depth2[0]), 2)
+                ) - ceres::sqrt(_dist2)
+            )
+        );
         return true;
     }
 
@@ -123,8 +128,10 @@ void Warp3D(const std::vector<Point3d<double>>& points2d, const Camera& cam, dou
     }
 
     ceres::Solver::Options options;    
-    options.linear_solver_type = ceres::DENSE_NORMAL_CHOLESKY;  
-    options.minimizer_progress_to_stdout = verbose;  
+    options.linear_solver_type = ceres::SPARSE_NORMAL_CHOLESKY;  
+    // options.
+    options.minimizer_progress_to_stdout = true;  
+    // options.max_num_iterations = 10;
 
     ceres::Solver::Summary summary;                
     chrono::steady_clock::time_point t1 = chrono::steady_clock::now();
@@ -142,7 +149,7 @@ void importData(const string filename, std::vector<Point3d<double>>& points, std
     }
     double u, v, x, y;
     while(points_file >> u >> v>> x >> y){
-        coords.emplace_back(Point3d<int>(u, v));
+        coords.emplace_back(Point3d<int>(u / 640 * 960, v / 480 * 540));
         points.emplace_back(Point3d<double>(x, y));
 	}
 	points_file.close();
