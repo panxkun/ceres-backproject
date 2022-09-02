@@ -12,11 +12,14 @@
 using namespace std;
 
 struct Marker{
-    Marker(double width, double height, size_t resolution_w, size_t resolution_h, size_t grid_x_cnt, size_t grid_y_cnt):
+    Marker(double width, double height, 
+        size_t resolution_w, size_t resolution_h, 
+        size_t grid_x_cnt, size_t grid_y_cnt,
+        double grid_pixel_x, double grid_pixel_y):
     reso_w(resolution_w), reso_h(resolution_h), cnt_x(grid_x_cnt), cnt_y(grid_y_cnt){
         cnt_total = cnt_x * cnt_y;
-        dx = width / cnt_x;
-        dy = height / cnt_y;
+        dx = grid_pixel_x / reso_w * width;
+        dy = grid_pixel_y / reso_h * height;
         dx2 = dx * dx;
         dy2 = dy * dy;
         dxy2 = dx2 + dy2;
@@ -217,12 +220,14 @@ int main ( int argc, char** argv )
 {
 
     const string datapath = string(argv[1]);
-    const size_t CNT_X = atoi(argv[2]);
-    const size_t CNT_Y = atoi(argv[3]);
+    const size_t grid_cnt_x = atoi(argv[2]);
+    const size_t grid_cnt_y = atoi(argv[3]);
+    const double grid_pixel_x = atoi(argv[4]);
+    const double grid_pixel_y = atoi(argv[5]);
 
     double A4_H = 2.10;
     double A4_W = 2.97;
-    Marker marker(A4_W , A4_H, 960, 540, CNT_X, CNT_Y);
+    Marker marker(A4_W , A4_H, 960, 540, grid_cnt_x, grid_cnt_y, grid_pixel_x, grid_pixel_y);
     Camera cam(500, 500, marker.reso_w/2.0, marker.reso_h/2.0);
     
     string imagename = datapath + "marker_640_480.png";
