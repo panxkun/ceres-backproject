@@ -11,21 +11,24 @@
 
 using namespace std;
 
-constexpr int CNT_X = 32;
-constexpr int CNT_Y = 24;
-constexpr int reso_w = 960;
-constexpr int reso_h = 540;
-constexpr double focal_x = 500;
-constexpr double focal_y = 500;
+struct Marker{
+    Marker(double width, double height, size_t resolution_w, size_t resolution_h, size_t grid_x_cnt, size_t grid_y_cnt):
+    reso_w(resolution_w), reso_h(resolution_h), cnt_x(grid_x_cnt), cnt_y(grid_y_cnt){
+        cnt_total = cnt_x * cnt_y;
+        dx = width / cnt_x;
+        dy = height / cnt_y;
+        dx2 = dx * dx;
+        dy2 = dy * dy;
+        dxy2 = dx2 + dy2;
+    }
+    size_t reso_w, reso_h;
+    size_t cnt_x, cnt_y;
+    size_t cnt_total;
 
-constexpr int CNT = CNT_X * CNT_Y;
-constexpr int CNT_ADJACENT_CONSTRAINT = 4 * CNT_X * CNT_Y - 3 * (CNT_X + CNT_Y) + 2;
-constexpr int CNT_DIFFPLANE_CONSTRAINT = CNT_X * CNT_Y -  (CNT_X + CNT_Y) + 1;
-constexpr double dx = 2.97 / (CNT_X - 1);
-constexpr double dy = 2.10 / (CNT_Y - 1);
-constexpr double dx2 = dx * dx;
-constexpr double dy2 = dy * dy;
-constexpr double dxy2 = dx * dx + dy * dy;
+    double dx, dy;
+    double dx2, dy2;
+    double dxy2;
+};
 
 struct Camera{
     Camera(double fx, double fy, double cx, double cy):
@@ -98,31 +101,31 @@ struct AdjacentDistanceError{
     Camera _cam;
 };
 
-void Warp3D(const std::vector<Point3d<double>>& points2d, const Camera& cam, double* depth, bool verbose=true){
+void Warp3D(const std::vector<Point3d<double>>& points2d, const Camera& cam, const Marker& marker, double* depth, bool verbose=true){
     
     ceres::Problem problem;
-    for(size_t i = 0; i < CNT; ++i){
+    for(size_t i = 0; i < marker.cnt_total; ++i){
         problem.AddParameterBlock(depth + i, 1);
     }
 
-    for(size_t r = 0; r < CNT_Y; ++r){
-        for(size_t c = 0; c < CNT_X; ++c){
-            const size_t idx1 = r * CNT_X + c;
-            if(r < CNT_Y - 1){
-                const size_t idx2 = idx1 + CNT_X;
-                problem.AddResidualBlock(AdjacentDistanceError::Create(points2d[idx1], points2d[idx2], dx2, cam), nullptr, depth + idx1, depth + idx2);
+    for(size_t r = 0; r < marker.cnt_y; ++r){
+        for(size_t c = 0; c < marker.cnt_x; ++c){
+            const size_t idx1 = r * marker.cnt_x + c;
+            if(r < marker.cnt_y - 1){
+                const size_t idx2 = idx1 + marker.cnt_x;
+                problem.AddResidualBlock(AdjacentDistanceError::Create(points2d[idx1], points2d[idx2], marker.dx2, cam), nullptr, depth + idx1, depth + idx2);
             }
-            if(c < CNT_X - 1){
+            if(c < marker.cnt_x - 1){
                 const size_t idx2 = idx1 + 1;
-                problem.AddResidualBlock(AdjacentDistanceError::Create(points2d[idx1], points2d[idx2], dy2, cam), nullptr, depth + idx1, depth + idx2);
+                problem.AddResidualBlock(AdjacentDistanceError::Create(points2d[idx1], points2d[idx2], marker.dy2, cam), nullptr, depth + idx1, depth + idx2);
             }
-            if(r < CNT_Y - 1 && c < CNT_X - 1){
-                const size_t idx2 = idx1 + CNT_X + 1;
-                problem.AddResidualBlock(AdjacentDistanceError::Create(points2d[idx1], points2d[idx2], dxy2, cam), nullptr, depth + idx1, depth + idx2);
+            if(r < marker.cnt_y - 1 && c < marker.cnt_x - 1){
+                const size_t idx2 = idx1 + marker.cnt_x + 1;
+                problem.AddResidualBlock(AdjacentDistanceError::Create(points2d[idx1], points2d[idx2], marker.dxy2, cam), nullptr, depth + idx1, depth + idx2);
             }
-            if(c > 0 && r < CNT_Y - 1){
-                const size_t idx2 = idx1 + CNT_X - 1;
-                problem.AddResidualBlock(AdjacentDistanceError::Create(points2d[idx1], points2d[idx2], dxy2, cam), nullptr, depth + idx1, depth + idx2);
+            if(c > 0 && r < marker.cnt_y - 1){
+                const size_t idx2 = idx1 + marker.cnt_x - 1;
+                problem.AddResidualBlock(AdjacentDistanceError::Create(points2d[idx1], points2d[idx2], marker.dxy2, cam), nullptr, depth + idx1, depth + idx2);
             }
         }
     }
@@ -130,8 +133,8 @@ void Warp3D(const std::vector<Point3d<double>>& points2d, const Camera& cam, dou
     ceres::Solver::Options options;    
     options.linear_solver_type = ceres::SPARSE_NORMAL_CHOLESKY;  
     // options.
-    options.minimizer_progress_to_stdout = true;  
-    // options.max_num_iterations = 10;
+    options.minimizer_progress_to_stdout = verbose;  
+    options.max_num_iterations = 5;
 
     ceres::Solver::Summary summary;                
     chrono::steady_clock::time_point t1 = chrono::steady_clock::now();
@@ -149,7 +152,7 @@ void importData(const string filename, std::vector<Point3d<double>>& points, std
     }
     double u, v, x, y;
     while(points_file >> u >> v>> x >> y){
-        coords.emplace_back(Point3d<int>(u / 640 * 960, v / 480 * 540));
+        coords.emplace_back(Point3d<int>(u, v));
         points.emplace_back(Point3d<double>(x, y));
 	}
 	points_file.close();
@@ -187,10 +190,10 @@ std::vector<string> loadDataList(const string filename){
     return datalist;
 }
 
-void run_on_sequence(const string& path, const std::vector<string>& filesname, const Camera& cam, const cv::Mat& image){
+void run_on_sequence(const string& path, const std::vector<string>& filesname, const Camera& cam, const Marker& marker, const cv::Mat& image){
 
-    double* depth = new double[CNT];
-    std::fill(depth, depth + CNT, 1.0);
+    double* depth = new double[marker.cnt_total];
+    std::fill(depth, depth + marker.cnt_total, 1.0);
 
     for(int i = 0; i < filesname.size(); ++i){
         string filename = path + "points/" + filesname[i] + ".txt";
@@ -198,67 +201,36 @@ void run_on_sequence(const string& path, const std::vector<string>& filesname, c
 
         std::vector<Point3d<double>> points;
         std::vector<Point3d<int>> coords;
-        
-
+    
         importData(filename.c_str(), points, coords);
-        Warp3D(points, cam, depth, false);
+        Warp3D(points, cam, marker, depth, false);
 
         string save_dir = path + "results/" + filesname[i] + ".txt";
         exportData(points, depth, coords, image, cam, save_dir.c_str());
-
         
     }
     delete[] depth;
     std::cout << "Sequence finished!" << std::endl;
 }
 
-void run_on_frame(const string& path, const string filename, const Camera& cam, const cv::Mat& image){
-
-    double* depth = new double[CNT];
-    std::fill(depth, depth + CNT, 1.0);
-
-    std::vector<Point3d<double>> points;
-    std::vector<Point3d<int>> coords;
-    
-    importData(filename, points, coords);
-    Warp3D(points, cam, depth);
-
-    string save_dir = path + "result.txt";
-    exportData(points, depth, coords, image, cam, save_dir.c_str());
-
-    delete[] depth;
-}
-
-
 int main ( int argc, char** argv )
 {
-    google::InitGoogleLogging(argv[0]);
-    Camera cam(focal_x, focal_y, reso_w/2.0, reso_h/2.0);
 
     const string datapath = string(argv[1]);
+    const size_t CNT_X = atoi(argv[2]);
+    const size_t CNT_Y = atoi(argv[3]);
 
-    string imagename = datapath + "starry_night_640_480.png";
+    double A4_H = 2.10;
+    double A4_W = 2.97;
+    Marker marker(A4_W , A4_H, 960, 540, CNT_X, CNT_Y);
+    Camera cam(500, 500, marker.reso_w/2.0, marker.reso_h/2.0);
+    
+    string imagename = datapath + "marker_640_480.png";
     cv::Mat image = cv::imread(imagename, cv::IMREAD_UNCHANGED);
-
     
-
-    // ========================================
-    std::cout << std::endl;
-    std::cout << "INFO: " << std::endl;
-    std::cout << "--CNT_X:                      " << CNT_X << std::endl; 
-    std::cout << "--CNT_Y:                      " << CNT_Y << std::endl; 
-    std::cout << "--CNT:                        " << CNT << std::endl; 
-    std::cout << "--CNT_ADJACENT_CONSTRAINT:    " << CNT_ADJACENT_CONSTRAINT << std::endl; 
-    std::cout << "--CNT_DIFFPLANE_CONSTRAINT:   " << CNT_DIFFPLANE_CONSTRAINT << std::endl << std::endl; 
-    // ========================================
-    
-
-    if(1){
-        std::vector<string> filesname = loadDataList(datapath);
-        run_on_sequence(datapath, filesname, cam, image);
-    }else{
-        run_on_frame(datapath, datapath, cam, image);
-    }
+    google::InitGoogleLogging(argv[0]);
+    std::vector<string> filesname = loadDataList(datapath);
+    run_on_sequence(datapath, filesname, cam, marker, image);
 
     return 0;
 }
